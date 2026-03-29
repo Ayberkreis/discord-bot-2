@@ -32,7 +32,9 @@ const ALLOWED_DISCORD_IDS = [
 ========================= */
 if (!TOKEN) console.error("HATA: TOKEN eksik.");
 if (!ROBLOX_COOKIE) console.error("HATA: ROBLOX_COOKIE eksik.");
-if (!GROUP_ID || Number.isNaN(GROUP_ID)) console.error("HATA: GROUP_ID eksik/geçersiz.");
+if (!GROUP_ID || Number.isNaN(GROUP_ID)) {
+  console.error("HATA: GROUP_ID eksik veya geçersiz.");
+}
 if (!GUILD_ID) console.error("HATA: GUILD_ID eksik.");
 
 /* =========================
@@ -78,20 +80,6 @@ function formatError(error) {
     return JSON.stringify(error);
   } catch {
     return "Hata çözümlenemedi";
-  }
-}
-
-async function safeReply(interaction, content) {
-  try {
-    if (interaction.deferred || interaction.replied) {
-      return await interaction.editReply(content);
-    }
-    return await interaction.reply({
-      content,
-      flags: MessageFlags.Ephemeral,
-    });
-  } catch (error) {
-    console.error("safeReply hatası:", error);
   }
 }
 
@@ -212,6 +200,21 @@ function buildErrorEmbed({
     .setTimestamp();
 }
 
+async function safeEditReply(interaction, content) {
+  try {
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply({ content });
+    }
+
+    return await interaction.reply({
+      content,
+      flags: MessageFlags.Ephemeral,
+    });
+  } catch (error) {
+    console.error("safeEditReply hatası:", error);
+  }
+}
+
 async function findRoleByName(rankName) {
   const roles = await noblox.getRoles(GROUP_ID);
 
@@ -303,6 +306,10 @@ async function registerSlashCommands(clientId) {
           .setDescription("Tenzil sebebi")
           .setRequired(false)
       ),
+
+    new SlashCommandBuilder()
+      .setName("test")
+      .setDescription("Botun cevap verip vermediğini test eder."),
   ].map((cmd) => cmd.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -338,36 +345,42 @@ client.once("clientReady", async (readyClient) => {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  const allowedCommands = ["rutbe-degistir", "terfi", "tenzil"];
+  const allowedCommands = ["rutbe-degistir", "terfi", "tenzil", "test"];
   if (!allowedCommands.includes(interaction.commandName)) return;
 
   const guild = interaction.guild;
   const executor = interaction.user;
-  const username = interaction.options.getString("kullanici", true).trim();
-  const reason = interaction.options.getString("sebep")?.trim() || "Sebep girilmedi";
-
-  if (!isAllowedUser(executor.id)) {
-    await safeReply(interaction, "Bu komutu kullanma yetkin yok.");
-
-    await sendLogEmbed(
-      guild,
-      buildErrorEmbed({
-        title: "Yetkisiz kullanım denemesi",
-        executor,
-        username,
-        requestedValue: interaction.commandName,
-        reason: "Bu Discord ID komut kullanma listesinde yok.",
-      })
-    );
-    return;
-  }
 
   try {
-    // EN ERKEN BURADA
+    // EN ERKEN NOKTA
     if (!interaction.deferred && !interaction.replied) {
       await interaction.deferReply({
         flags: MessageFlags.Ephemeral,
       });
+    }
+
+    if (interaction.commandName === "test") {
+      return await safeEditReply(interaction, "BOT ÇALIŞIYOR");
+    }
+
+    const username = interaction.options.getString("kullanici", true).trim();
+    const reason =
+      interaction.options.getString("sebep")?.trim() || "Sebep girilmedi";
+
+    if (!isAllowedUser(executor.id)) {
+      await safeEditReply(interaction, "Bu komutu kullanma yetkin yok.");
+
+      await sendLogEmbed(
+        guild,
+        buildErrorEmbed({
+          title: "Yetkisiz kullanım denemesi",
+          executor,
+          username,
+          requestedValue: interaction.commandName,
+          reason: "Bu Discord ID komut kullanma listesinde yok.",
+        })
+      );
+      return;
     }
 
     const targetUserId = await noblox.getIdFromUsername(username);
@@ -388,7 +401,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await noblox.setRank(GROUP_ID, targetUserId, matchedRole.name);
 
-      await safeReply(interaction, "Başarıyla rütbe değiştirildi!");
+      await safeEditReply(interaction, "Başarıyla rütbe değiştirildi!");
 
       await sendLogEmbed(
         guild,
@@ -429,7 +442,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await noblox.setRank(GROUP_ID, targetUserId, nextRole.name);
 
-      await safeReply(interaction, "Başarıyla rütbe değiştirildi!");
+      await safeEditReply(interaction, "Başarıyla rütbe değiştirildi!");
 
       await sendLogEmbed(
         guild,
@@ -470,7 +483,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await noblox.setRank(GROUP_ID, targetUserId, previousRole.name);
 
-      await safeReply(interaction, "Başarıyla rütbe değiştirildi!");
+      await safeEditReply(interaction, "Başarıyla rütbe değiştirildi!");
 
       await sendLogEmbed(
         guild,
@@ -491,24 +504,34 @@ client.on("interactionCreate", async (interaction) => {
 
     console.error(`[${interaction.commandName.toUpperCase()} HATASI]`, error);
 
-    await safeReply(
-      interaction,
-      `İşlem gerçekleştirilemedi.\nSebep: \`${safeText(errorMessage)}\``
-    );
+    try {
+      await safeEditReply(
+        interaction,
+        `İşlem gerçekleştirilemedi.\nSebep: \`${safeText(errorMessage)}\``
+      );
+    } catch (replyError) {
+      console.error("Reply hatası:", replyError);
+    }
 
-    await sendLogEmbed(
-      guild,
-      buildErrorEmbed({
-        title: `${interaction.commandName} işlemi başarısız`,
-        executor,
-        username,
-        requestedValue:
-          interaction.commandName === "rutbe-degistir"
-            ? interaction.options.getString("rutbe", true)
-            : interaction.commandName,
-        reason: errorMessage,
-      })
-    );
+    try {
+      const username = interaction.options?.getString("kullanici") || "-";
+
+      await sendLogEmbed(
+        guild,
+        buildErrorEmbed({
+          title: `${interaction.commandName} işlemi başarısız`,
+          executor,
+          username,
+          requestedValue:
+            interaction.commandName === "rutbe-degistir"
+              ? interaction.options.getString("rutbe") || "-"
+              : interaction.commandName,
+          reason: errorMessage,
+        })
+      );
+    } catch (logError) {
+      console.error("Hata logu gönderilemedi:", logError);
+    }
   }
 });
 
