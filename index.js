@@ -23,6 +23,7 @@ app.listen(PORT, () => {
 
 const TOKEN = process.env.TOKEN;
 const ROBLOX_COOKIE = process.env.ROBLOX_COOKIE;
+console.log("COOKIE DEBUG:", ROBLOX_COOKIE);
 const GROUP_ID = Number(process.env.GROUP_ID);
 
 // Virgülle ayrılmış Discord ID listesi
