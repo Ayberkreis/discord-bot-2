@@ -32,9 +32,7 @@ const ALLOWED_DISCORD_IDS = [
 ========================= */
 if (!TOKEN) console.error("HATA: TOKEN eksik.");
 if (!ROBLOX_COOKIE) console.error("HATA: ROBLOX_COOKIE eksik.");
-if (!GROUP_ID || Number.isNaN(GROUP_ID)) {
-  console.error("HATA: GROUP_ID eksik veya geçersiz.");
-}
+if (!GROUP_ID || Number.isNaN(GROUP_ID)) console.error("HATA: GROUP_ID eksik/geçersiz.");
 if (!GUILD_ID) console.error("HATA: GUILD_ID eksik.");
 
 /* =========================
@@ -80,6 +78,20 @@ function formatError(error) {
     return JSON.stringify(error);
   } catch {
     return "Hata çözümlenemedi";
+  }
+}
+
+async function safeReply(interaction, content) {
+  try {
+    if (interaction.deferred || interaction.replied) {
+      return await interaction.editReply(content);
+    }
+    return await interaction.reply({
+      content,
+      flags: MessageFlags.Ephemeral,
+    });
+  } catch (error) {
+    console.error("safeReply hatası:", error);
   }
 }
 
@@ -169,7 +181,7 @@ function buildErrorEmbed({
   title,
   executor,
   username,
-  requestedRole,
+  requestedValue,
   reason,
 }) {
   return new EmbedBuilder()
@@ -188,7 +200,7 @@ function buildErrorEmbed({
       },
       {
         name: "İstenen değer",
-        value: `\`${safeText(requestedRole || "-")}\``,
+        value: `\`${safeText(requestedValue || "-")}\``,
         inline: true,
       },
       {
@@ -295,12 +307,10 @@ async function registerSlashCommands(clientId) {
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  // Guild: anında gelsin
   await rest.put(Routes.applicationGuildCommands(clientId, GUILD_ID), {
     body: commands,
   });
 
-  // Global: diğer yerlerde de bulunsun
   await rest.put(Routes.applicationCommands(clientId), {
     body: commands,
   });
@@ -337,10 +347,7 @@ client.on("interactionCreate", async (interaction) => {
   const reason = interaction.options.getString("sebep")?.trim() || "Sebep girilmedi";
 
   if (!isAllowedUser(executor.id)) {
-    await interaction.reply({
-      content: "Bu komutu kullanma yetkin yok.",
-      flags: MessageFlags.Ephemeral,
-    });
+    await safeReply(interaction, "Bu komutu kullanma yetkin yok.");
 
     await sendLogEmbed(
       guild,
@@ -348,19 +355,21 @@ client.on("interactionCreate", async (interaction) => {
         title: "Yetkisiz kullanım denemesi",
         executor,
         username,
-        requestedRole: interaction.commandName,
+        requestedValue: interaction.commandName,
         reason: "Bu Discord ID komut kullanma listesinde yok.",
       })
     );
-
     return;
   }
 
-  await interaction.deferReply({
-    flags: MessageFlags.Ephemeral,
-  });
-
   try {
+    // EN ERKEN BURADA
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply({
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const targetUserId = await noblox.getIdFromUsername(username);
 
     if (interaction.commandName === "rutbe-degistir") {
@@ -379,7 +388,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await noblox.setRank(GROUP_ID, targetUserId, matchedRole.name);
 
-      await interaction.editReply("Başarıyla rütbe değiştirildi!");
+      await safeReply(interaction, "Başarıyla rütbe değiştirildi!");
 
       await sendLogEmbed(
         guild,
@@ -393,7 +402,6 @@ client.on("interactionCreate", async (interaction) => {
           reason,
         })
       );
-
       return;
     }
 
@@ -421,7 +429,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await noblox.setRank(GROUP_ID, targetUserId, nextRole.name);
 
-      await interaction.editReply("Başarıyla rütbe değiştirildi!");
+      await safeReply(interaction, "Başarıyla rütbe değiştirildi!");
 
       await sendLogEmbed(
         guild,
@@ -435,7 +443,6 @@ client.on("interactionCreate", async (interaction) => {
           reason,
         })
       );
-
       return;
     }
 
@@ -463,7 +470,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await noblox.setRank(GROUP_ID, targetUserId, previousRole.name);
 
-      await interaction.editReply("Başarıyla rütbe değiştirildi!");
+      await safeReply(interaction, "Başarıyla rütbe değiştirildi!");
 
       await sendLogEmbed(
         guild,
@@ -477,7 +484,6 @@ client.on("interactionCreate", async (interaction) => {
           reason,
         })
       );
-
       return;
     }
   } catch (error) {
@@ -485,7 +491,8 @@ client.on("interactionCreate", async (interaction) => {
 
     console.error(`[${interaction.commandName.toUpperCase()} HATASI]`, error);
 
-    await interaction.editReply(
+    await safeReply(
+      interaction,
       `İşlem gerçekleştirilemedi.\nSebep: \`${safeText(errorMessage)}\``
     );
 
@@ -495,7 +502,7 @@ client.on("interactionCreate", async (interaction) => {
         title: `${interaction.commandName} işlemi başarısız`,
         executor,
         username,
-        requestedRole:
+        requestedValue:
           interaction.commandName === "rutbe-degistir"
             ? interaction.options.getString("rutbe", true)
             : interaction.commandName,
@@ -503,6 +510,25 @@ client.on("interactionCreate", async (interaction) => {
       })
     );
   }
+});
+
+/* =========================
+   ERROR LOGS
+========================= */
+client.on("error", (error) => {
+  console.error("CLIENT ERROR:", error);
+});
+
+client.on("shardError", (error) => {
+  console.error("SHARD ERROR:", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("UNCAUGHT EXCEPTION:", error);
 });
 
 /* =========================
