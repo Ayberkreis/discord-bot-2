@@ -1,9 +1,21 @@
 require('dotenv').config();
 
+const express = require('express');
+const { Client, GatewayIntentBits } = require('discord.js');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('Bot aktif');
+});
+
+app.listen(PORT, () => {
+  console.log(`Web server ${PORT} portunda çalışıyor`);
+});
+
 console.log('Dosya çalıştı');
 console.log('TOKEN var mı:', !!process.env.TOKEN);
-
-const { Client, GatewayIntentBits } = require('discord.js');
 
 const client = new Client({
   intents: [
@@ -13,7 +25,7 @@ const client = new Client({
   ]
 });
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Bot hazır: ${client.user.tag}`);
 });
 
